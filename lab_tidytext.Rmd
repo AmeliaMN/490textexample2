@@ -1,0 +1,141 @@
+---
+title: "Chapter 1 tidytext"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(tidytext)
+library(tidyverse)
+library(gutenbergr)
+library(wordcloud)
+```
+
+## Grabbing books from Project Gutenberg
+```{r}
+wtp <- gutenberg_download(67098)
+bambi <- gutenberg_download(63849)
+```
+
+## Data cleaning 
+
+```{r}
+wtp %>%
+  filter(str_detect(text, "_"))
+```
+
+```{r}
+wtp <- wtp %>%
+  mutate(text = str_replace_all(text, "_", " "))
+```
+
+## Tokenization
+
+```{r}
+wtp_words <- wtp %>%
+  unnest_tokens(word, text)
+bambi_words <- bambi %>%
+  unnest_tokens(word, text)
+```
+
+## Word counts
+
+```{r}
+word_counts <- wtp_words %>%
+ count(word, sort = TRUE)
+word_counts2 <- bambi_words %>%
+  count(word, sort = TRUE)
+```
+
+## Removing stop words
+
+```{r}
+smallstop <- stop_words %>%
+  filter(lexicon == "snowball")
+```
+
+```{r} 
+interesting <- word_counts %>%
+  anti_join(stop_words)
+interesting_bambi <- word_counts2 %>%
+  anti_join(stop_words)
+```
+
+## Frequency comparison
+
+```{r}
+frequency <- bind_rows(mutate(interesting_bambi, book = "bambi"),
+                       mutate(interesting, book = "wtp")) %>% 
+  group_by(book) %>%
+  mutate(proportion = n / sum(n)) %>% 
+  select(-n) %>% 
+  pivot_wider(names_from = book, values_from = proportion) %>%
+  mutate(wtp = if_else(is.na(wtp), 0, wtp),
+         bambi = if_else(is.na(bambi), 0, bambi))
+```
+
+```{r}
+oddsratio <- frequency %>%
+  mutate_if(is.numeric, list(~(. + 1) / (sum(.) + 1))) %>%
+  mutate(logratio = log(wtp / bambi))
+
+```
+
+```{r}
+oddsratio %>%
+  group_by(logratio < 0) %>%
+  slice_max(abs(logratio), n = 15) %>% 
+  ungroup() %>%
+  mutate(word = reorder(word, logratio)) %>%
+  ggplot(aes(word, logratio, fill = logratio < 0)) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() 
+```
+
+
+```{r}
+ggplot(frequency, aes(x = wtp, y = bambi)) +
+  geom_abline(color = "gray40", lty = 2) +
+  geom_jitter(alpha = 0.1, size = 2.5, width = 0.3, height = 0.3) +
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 2, hjust = 1.5) +
+   scale_x_log10(labels = scales::percent_format()) +
+   scale_y_log10(labels = scales::percent_format()) +
+  scale_color_gradient(limits = c(0, 0.001), 
+                       low = "darkslategray4", high = "gray75") +
+  theme(legend.position="none") 
+```
+
+## Wordcloud
+
+```{r}
+interesting_bambi %>%
+  count(word) %>%
+  with(wordcloud(word, n, scale = c(1, 0.025), max.words = 100))
+```
+
+## Copy-paste
+
+```{r, echo=FALSE, eval=FALSE}
+text <- tibble(text = c("Given the statistics, what have been observed so far and the fact that my kids are not immunocompromised, we
+don’t have a high level of anxiety. We wouldn’t meet with people who are knowingly sick or exhibit symptoms,
+otherwise we haven’t been limiting our kids when it comes to social interactions. The child care that one of my
+kids attends does not require masking. There haven’t been any cases at all since the beginning of pandemic.
+They do check temperature and there’s a health screen everyday.
+I think masking kids who are 2-3 year old does more damage than good. It is not supported by WHO and is not
+practiced in other developed countries. Nor has this group shown to be a significant spreader. I believe the
+safety measures should also incorporate emotional and mental health tips for different age groups.
+I would love for my toddler to attend daycare and socialize with other kids. My oldest son did and I felt he
+benefited a lot from it. I am concerned about my toddler social development.
+I feel comfortable around unmasked little kids, up to at least 8-10, even in groups
+I’m still nursing and have had my third booster vaccine dose. Hoping my 7 month old is getting antibodies thru
+the breastfeeding to help her immune system with Omicron.
+I live in Tennessee where it seems a lot of people have given up on masks. My daughter is in daycare two days a
+week, I work in public schools (masks required there thankfully) and I just found out I’m pregnant again after
+several miscarriages. I was starting to feel a little better about omicron being less severe and us doing what we
+could, the pregnancy news has thrown me. Even though I’m boosted I’m worried that a Covid infection right
+now could impact the health of my pregnancy. And I turn 35 next month.
+I'm not afraid of my kid getting COVID, I know his risk is lower than the risk of things/illnesses"))
+
+text %>%
+  unnest_tokens(word, text)
+```
